@@ -1,7 +1,3 @@
-
-# ============================================================
-# LIBRERÍAS IMPORTADAS
-# ============================================================
 import tkinter as tk
 from tkinter import ttk, messagebox
 import numpy as np
@@ -16,68 +12,144 @@ def crear_grafo_aleatorio(n):
     matriz = np.zeros((n, n), dtype=int)
 
     for i in range(n):
-        for j in range(i + 1, n):
-            valor = np.random.randint(0, 2)
-            matriz[i][j] = valor
-            matriz[j][i] = valor
+        for j in range(n):
+
+            if i == j:
+                continue
+
+            matriz[i][j] = np.random.randint(0, 2)
 
     return matriz
 
 
-def componentes_conexas(matriz):
+def matriz_de_caminos(matriz):
+    """Paso 1 y 2 del PDF: agrega 1's en la diagonal y calcula la matriz de
+    caminos (cierre transitivo) a partir de la matriz de adyacencia."""
     n = len(matriz)
+    R = matriz.copy()
+
+    for i in range(n):
+        R[i][i] = 1
+
+    for k in range(n):
+        for i in range(n):
+
+            if R[i][k] == 0:
+                continue
+
+            for j in range(n):
+                if R[k][j] == 1:
+                    R[i][j] = 1
+
+    return R
+
+
+def ordenar_por_filas(R):
+    """Paso 3 del PDF: determina el orden de las filas según la cantidad de
+    1's que contienen (de mayor a menor). En caso de empate, se prioriza la
+    fila cuyo primer 1 está más cerca de la primera columna."""
+    n = len(R)
+
+    def clave(i):
+        cantidad_unos = int(np.sum(R[i]))
+        primer_uno = int(np.argmax(R[i]))
+        return (-cantidad_unos, primer_uno)
+
+    return sorted(range(n), key=clave)
+
+
+def componentes_conexas(matriz):
+    """Pasos 3 y 4 del PDF: a partir de la matriz de caminos, se agrupan los
+    nodos que se alcanzan mutuamente (equivalente a los bloques cuadrados
+    diagonales que se obtienen al ordenar filas y columnas)."""
+    n = len(matriz)
+    R = matriz_de_caminos(matriz)
+
     visitados = [False] * n
     componentes = []
 
-    for inicio in range(n):
+    for i in range(n):
 
-        if visitados[inicio]:
+        if visitados[i]:
             continue
 
         componente = []
-        pendientes = [inicio]
-        visitados[inicio] = True
+        for j in range(n):
 
-        while pendientes:
-            actual = pendientes.pop(0)
-            componente.append(actual + 1)
-
-            for vecino in range(n):
-
-                if matriz[actual][vecino] != 1:
-                    continue
-
-                if visitados[vecino]:
-                    continue
-
-                visitados[vecino] = True
-                pendientes.append(vecino)
+            if R[i][j] == 1 and R[j][i] == 1:
+                componente.append(j + 1)
+                visitados[j] = True
 
         componentes.append(componente)
 
     return componentes
 
 
-def dibujar_grafo(matriz, componentes, etiquetas):
+def dibujar_grafo(matriz, componentes, etiquetas, separar_componentes=False, titulo="Grafo"):
     n = len(matriz)
-    angulos = np.linspace(0, 2 * np.pi, n, endpoint=False)
 
-    posiciones = []
-    for angulo in angulos:
-        posiciones.append((np.cos(angulo), np.sin(angulo)))
+    # --- A qué componente pertenece cada nodo (para filtrar aristas si aplica) ---
+    comp_de = [0] * n
+    for idx_comp, componente in enumerate(componentes):
+        for nodo in componente:
+            comp_de[nodo - 1] = idx_comp
+
+    if separar_componentes:
+        # --- Ubicar cada componente en su propio grupo, separado de las demás ---
+        k = len(componentes)
+        columnas = int(np.ceil(np.sqrt(k)))
+        separacion = 3.2
+
+        posiciones = [None] * n
+
+        for idx_comp, componente in enumerate(componentes):
+            fila_grid = idx_comp // columnas
+            col_grid = idx_comp % columnas
+            cx = col_grid * separacion
+            cy = -fila_grid * separacion
+
+            m = len(componente)
+            angulos = np.linspace(0, 2 * np.pi, m, endpoint=False)
+
+            if m > 1:
+                radio = 0.6
+            else:
+                radio = 0.0
+
+            for angulo, nodo in zip(angulos, componente):
+                x = cx + radio * np.cos(angulo)
+                y = cy + radio * np.sin(angulo)
+                posiciones[nodo - 1] = (x, y)
+    else:
+        # --- Grafo original: todos los nodos en un único círculo ---
+        angulos = np.linspace(0, 2 * np.pi, n, endpoint=False)
+        posiciones = [(np.cos(a), np.sin(a)) for a in angulos]
 
     plt.figure(figsize=(8, 8))
 
-    # --- Dibujar las líneas de conexión ---
+    # --- Dibujar las flechas de conexión (grafo dirigido) ---
     for i in range(n):
-        for j in range(i + 1, n):
+        for j in range(n):
 
             if matriz[i][j] != 1:
                 continue
 
+            if i == j:
+                # --- No se dibuja nada para un nodo conectado consigo mismo ---
+                continue
+
+            # --- En la vista separada, solo se dibujan aristas dentro de la misma componente ---
+            if separar_componentes and comp_de[i] != comp_de[j]:
+                continue
+
             x1, y1 = posiciones[i]
             x2, y2 = posiciones[j]
-            plt.plot([x1, x2], [y1, y2], 'k-', zorder=1)
+            plt.annotate(
+                "", xy=(x2, y2), xytext=(x1, y1),
+                arrowprops=dict(arrowstyle="-|>", color="black", lw=1,
+                                 shrinkA=15, shrinkB=15),
+                zorder=1
+            )
 
     # --- Dibujar los nodos, coloreados por componente ---
     colores = plt.cm.tab10.colors
@@ -100,7 +172,7 @@ def dibujar_grafo(matriz, componentes, etiquetas):
         bbox_to_anchor=(1.02, 1)
     )
 
-    plt.title("Componentes Conexas")
+    plt.title(titulo)
     plt.axis("equal")
     plt.axis("off")
     plt.tight_layout()
@@ -246,7 +318,8 @@ class PantallaMatriz(tk.Frame):
         # Texto instructivo: explica qué se puede hacer en esta pantalla
         tk.Label(
             self,
-            text="Aquí puedes agregar aristas, cambiar las etiquetas de los nodos,\n"
+            text="Grafo dirigido: cada arista va de un Origen a un Destino.\n"
+                 "Aquí puedes agregar aristas, cambiar las etiquetas de los nodos,\n"
                  "revertir el grafo (borrar aristas) o graficar el resultado.",
             font=("Arial", 9), fg="gray20", justify="center", wraplength=460
         ).pack(pady=(0, 10))
@@ -265,6 +338,8 @@ class PantallaMatriz(tk.Frame):
         tk.Button(frame_botones, text="Revertir", command=self.revertir, bg="#ffe0b3").grid(row=1, column=0, padx=5, pady=5, sticky="ew")
         tk.Button(frame_botones, text="Reiniciar", command=self.reiniciar, bg="#ffb3b3").grid(row=1, column=1, padx=5, pady=5, sticky="ew")
         tk.Button(frame_botones, text="Graficar", command=self.graficar, bg="lightblue").grid(row=1, column=2, padx=5, pady=5, sticky="ew")
+        tk.Button(frame_botones, text="Ver procedimiento paso a paso", command=self.ver_procedimiento,
+                  bg="#d9c7ff").grid(row=2, column=0, columnspan=3, padx=5, pady=5, sticky="ew")
 
         # ---------- Resultado final ----------
         f_resultado = ttk.LabelFrame(self, text="Resultado final", padding=10)
@@ -356,7 +431,7 @@ class PantallaMatriz(tk.Frame):
         # --- Refrescar el panel de Resultado final ---
         componentes = componentes_conexas(matriz)
         num = len(componentes)
-        aristas = int(np.sum(matriz) // 2)
+        aristas = int(np.sum(matriz))
 
         if num == 1:
             es_conexo = "Sí"
@@ -399,16 +474,11 @@ class PantallaMatriz(tk.Frame):
             o = int(spin_o.get())
             d = int(spin_d.get())
 
-            if o == d:
-                messagebox.showerror("Error", "No se puede conectar un nodo consigo mismo")
-                return
-
             if self.app.matriz[o - 1][d - 1] == 1:
                 messagebox.showinfo("Info", "Esa conexión ya existe")
                 return
 
             self.app.matriz[o - 1][d - 1] = 1
-            self.app.matriz[d - 1][o - 1] = 1
             self.actualizar()
 
         tk.Button(ventana, text="Agregar", command=agregar).grid(row=2, column=0, pady=10)
@@ -448,7 +518,257 @@ class PantallaMatriz(tk.Frame):
     def graficar(self):
         componentes = componentes_conexas(self.app.matriz)
         etiquetas = self.app.etiquetas_actuales()
-        dibujar_grafo(self.app.matriz, componentes, etiquetas)
+
+        # --- Imagen 1: grafo original, todos los nodos juntos ---
+        dibujar_grafo(self.app.matriz, componentes, etiquetas,
+                      separar_componentes=False, titulo="Grafo original")
+
+        # --- Imagen 2: componentes separadas visualmente ---
+        dibujar_grafo(self.app.matriz, componentes, etiquetas,
+                      separar_componentes=True, titulo="Componentes Conexas")
+
+    def ver_procedimiento(self):
+        VentanaPasos(self, self.app.matriz, self.app.etiquetas_actuales())
+
+
+# ------------------------------------------------------------
+# VENTANA: PROCEDIMIENTO PASO A PASO (Pasos 1-4 del PDF)
+# ------------------------------------------------------------
+
+class VentanaPasos(tk.Toplevel):
+    """Muestra, de forma interactiva, cómo va cambiando la matriz en cada
+    paso del procedimiento (matriz + diagonal, matriz de caminos, orden de
+    filas, orden de columnas y bloques), tal como se explica en el PDF."""
+
+    def __init__(self, parent, matriz, etiquetas):
+        super().__init__(parent)
+        self.title("Procedimiento: Componentes conexas")
+        self.geometry("560x580")
+
+        self.matriz = matriz
+        self.etiquetas = etiquetas
+        self.n = len(matriz)
+        self.paso_actual = 0
+
+        self._calcular_pasos()
+
+        self.label_titulo = tk.Label(self, text="", font=("Arial", 13, "bold"))
+        self.label_titulo.pack(pady=(12, 0))
+
+        self.label_descripcion = tk.Label(
+            self, text="", font=("Arial", 9), fg="gray20",
+            wraplength=500, justify="center"
+        )
+        self.label_descripcion.pack(pady=(2, 10))
+
+        self.frame_tabla = tk.Frame(self)
+        self.frame_tabla.pack(pady=5)
+
+        self.label_extra = tk.Label(
+            self, text="", font=("Arial", 9), fg="gray20",
+            wraplength=500, justify="left"
+        )
+        self.label_extra.pack(pady=(5, 0))
+
+        frame_nav = tk.Frame(self)
+        frame_nav.pack(pady=15)
+
+        self.btn_anterior = tk.Button(frame_nav, text="< Anterior", command=self.anterior, width=10)
+        self.btn_anterior.grid(row=0, column=0, padx=10)
+        self.label_paso = tk.Label(frame_nav, text="", font=("Arial", 10, "bold"))
+        self.label_paso.grid(row=0, column=1, padx=10)
+        self.btn_siguiente = tk.Button(frame_nav, text="Siguiente >", command=self.siguiente, width=10)
+        self.btn_siguiente.grid(row=0, column=2, padx=10)
+
+        self.mostrar_paso()
+
+    def _calcular_pasos(self):
+        n = self.n
+        matriz = self.matriz
+
+        # Paso 1: matriz de adyacencia con 1's en la diagonal
+        M1 = matriz.copy()
+        for i in range(n):
+            M1[i][i] = 1
+
+        # Paso 2: matriz de caminos (cierre transitivo)
+        R = matriz_de_caminos(matriz)
+
+        # Paso 3: orden de las filas
+        orden = ordenar_por_filas(R)
+        R_filas = R[orden, :]
+
+        # Paso 4: mismas columnas, en el mismo orden que las filas
+        R_final = R[np.ix_(orden, orden)]
+
+        # Componentes reales, para resaltar los bloques correctamente
+        componentes = componentes_conexas(matriz)
+        comp_de_nodo = {}
+        for idx_c, comp in enumerate(componentes):
+            for nodo in comp:
+                comp_de_nodo[nodo] = idx_c
+
+        # Límites (inicio, fin) de cada bloque diagonal, según el orden final
+        bloques = []
+        inicio = 0
+        comp_actual = comp_de_nodo[orden[0] + 1]
+
+        for pos in range(1, n + 1):
+            if pos == n or comp_de_nodo[orden[pos] + 1] != comp_actual:
+                bloques.append((inicio, pos - 1))
+
+                if pos < n:
+                    comp_actual = comp_de_nodo[orden[pos] + 1]
+                    inicio = pos
+
+        self.M1 = M1
+        self.R = R
+        self.orden = orden
+        self.R_filas = R_filas
+        self.R_final = R_final
+        self.componentes = componentes
+        self.bloques = bloques
+
+    def _pintar_matriz(self, M, etiquetas_filas, etiquetas_columnas, resaltar=None):
+        """Dibuja M como una tabla. 'resaltar' es un set de (fila,col) que
+        se marcan con borde rojo (los bloques de componentes)."""
+        for w in self.frame_tabla.winfo_children():
+            w.destroy()
+
+        resaltar = resaltar or set()
+
+        tk.Label(self.frame_tabla, text="", width=4).grid(row=0, column=0)
+
+        for j in range(self.n):
+            tk.Label(self.frame_tabla, text=etiquetas_columnas[j], width=4,
+                     font=("Arial", 9, "bold")).grid(row=0, column=j + 1)
+
+        for i in range(self.n):
+            tk.Label(self.frame_tabla, text=etiquetas_filas[i], width=4,
+                     font=("Arial", 9, "bold")).grid(row=i + 1, column=0)
+
+            for j in range(self.n):
+                val = int(M[i][j])
+                marcado = (i, j) in resaltar
+
+                # --- Color de fondo: verde si hay conexión (1), blanco si no (0) ---
+                if val == 1:
+                    bg = "lightgreen"
+                else:
+                    bg = "white"
+
+                # --- Borde: rojo y grueso si la celda pertenece a un bloque (componente) ---
+                if marcado:
+                    color_borde = "red"
+                    grosor_borde = 3
+                else:
+                    color_borde = "gray70"
+                    grosor_borde = 1
+
+                lbl = tk.Label(
+                    self.frame_tabla, text=str(val), width=4, bg=bg,
+                    highlightthickness=grosor_borde,
+                    highlightbackground=color_borde
+                )
+                lbl.grid(row=i + 1, column=j + 1, padx=1, pady=1)
+
+    def mostrar_paso(self):
+        etiquetas = self.etiquetas
+        etiquetas_orden = [etiquetas[i] for i in self.orden]
+
+        # --- Habilitar/deshabilitar los botones de navegación según el paso actual ---
+        if self.paso_actual > 0:
+            self.btn_anterior.config(state="normal")
+        else:
+            self.btn_anterior.config(state="disabled")
+
+        if self.paso_actual < 4:
+            self.btn_siguiente.config(state="normal")
+        else:
+            self.btn_siguiente.config(state="disabled")
+
+        self.label_paso.config(text=f"Paso {self.paso_actual + 1} de 5")
+        self.label_extra.config(text="")
+
+        if self.paso_actual == 0:
+            self.label_titulo.config(text="Paso 1: Matriz de adyacencia + diagonal")
+            self.label_descripcion.config(
+                text="Se construye la matriz de adyacencia del grafo y se agrega el valor 1 "
+                     "en toda la diagonal principal."
+            )
+            self._pintar_matriz(self.M1, etiquetas, etiquetas)
+
+        elif self.paso_actual == 1:
+            self.label_titulo.config(text="Paso 2: Matriz de caminos")
+            self.label_descripcion.config(
+                text="A partir de la matriz del Paso 1 se calcula la matriz de caminos "
+                     "M_R∞: indica qué nodos son alcanzables desde cada nodo."
+            )
+            self._pintar_matriz(self.R, etiquetas, etiquetas)
+
+            lineas = ["Nodos alcanzables desde cada nodo:"]
+
+            for i in range(self.n):
+                alcanzables = []
+                for j in range(self.n):
+                    if self.R[i][j] == 1:
+                        alcanzables.append(etiquetas[j])
+
+                lineas.append(f"  {etiquetas[i]} llega hasta: {', '.join(alcanzables)}")
+
+            self.label_extra.config(text="\n".join(lineas))
+
+        elif self.paso_actual == 2:
+            self.label_titulo.config(text="Paso 3: Ordenar filas")
+            self.label_descripcion.config(
+                text="Se ordenan las filas según la cantidad de 1's que contienen (de mayor "
+                     "a menor). En caso de empate, se prioriza la fila cuyo primer 1 esté "
+                     "más cerca de la primera columna."
+            )
+            self._pintar_matriz(self.R_filas, etiquetas_orden, etiquetas)
+
+            lineas = ["Cantidad de 1's por fila (en el orden mostrado):"]
+            cantidades = [f"{etiquetas[i]} tiene {int(np.sum(self.R[i]))}" for i in self.orden]
+            lineas.append("  " + ", ".join(cantidades))
+            self.label_extra.config(text="\n".join(lineas))
+
+        elif self.paso_actual == 3:
+            self.label_titulo.config(text="Paso 4: Ordenar columnas y formar bloques")
+            self.label_descripcion.config(
+                text="Se reordenan las columnas en el mismo orden que las filas. Los bloques "
+                     "cuadrados diagonales formados por 1's (marcados en rojo) son las "
+                     "componentes conexas."
+            )
+            resaltar = set()
+            for inicio, fin in self.bloques:
+                for i in range(inicio, fin + 1):
+                    for j in range(inicio, fin + 1):
+                        resaltar.add((i, j))
+            self._pintar_matriz(self.R_final, etiquetas_orden, etiquetas_orden, resaltar=resaltar)
+
+        else:
+            self.label_titulo.config(text="Resultado: Componentes conexas")
+            self.label_descripcion.config(text="")
+
+            for w in self.frame_tabla.winfo_children():
+                w.destroy()
+
+            texto = ""
+            for i, comp in enumerate(self.componentes, start=1):
+                nombres = [etiquetas[nodo - 1] for nodo in comp]
+                texto += f"V{i} = {{{', '.join(nombres)}}}\n"
+
+            tk.Label(self.frame_tabla, text=texto, font=("Arial", 13), justify="left").pack()
+
+    def anterior(self):
+        if self.paso_actual > 0:
+            self.paso_actual -= 1
+            self.mostrar_paso()
+
+    def siguiente(self):
+        if self.paso_actual < 4:
+            self.paso_actual += 1
+            self.mostrar_paso()
 
 
 if __name__ == "__main__":
